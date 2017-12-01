@@ -62,6 +62,26 @@ use types::{
 };
 use tx::transact;
 
+// DEBUG LOGGING
+use std::os::raw::c_char;
+use std::os::raw::c_int;
+use std::ffi::CString;
+
+pub const ANDROID_LOG_DEBUG: i32 = 3;
+pub const ANDROID_LOG_INFO: i32 = 4;
+pub const ANDROID_LOG_WARN: i32 = 5;
+pub const ANDROID_LOG_ERROR: i32 = 6;
+extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
+
+pub fn d(message: &str) {
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new("RustyMentat").unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+}
+// ///
+
 pub fn new_connection<T>(uri: T) -> rusqlite::Result<rusqlite::Connection> where T: AsRef<Path> {
     let conn = match uri.as_ref().to_string_lossy().len() {
         0 => rusqlite::Connection::open_in_memory()?,
@@ -208,17 +228,23 @@ fn get_user_version(conn: &rusqlite::Connection) -> Result<i32> {
 
 // TODO: rename "SQL" functions to align with "datoms" functions.
 pub fn create_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
+    d("create_current_version");
     let tx = conn.transaction()?;
+    d("tx");
 
     for statement in (&V1_STATEMENTS).iter() {
+        d(&format!("running statement {:?}", statement));
         tx.execute(statement, &[])?;
     }
+
+    d("done with statements");
 
     let bootstrap_partition_map = bootstrap::bootstrap_partition_map();
     // TODO: think more carefully about allocating new parts and bitmasking part ranges.
     // TODO: install these using bootstrap assertions.  It's tricky because the part ranges are implicit.
     // TODO: one insert, chunk into 999/3 sections, for safety.
     // This is necessary: `transact` will only UPDATE parts, not INSERT them if they're missing.
+    d(&format!("got bootstrap partition map {:?}", bootstrap_partition_map));
     for (part, partition) in bootstrap_partition_map.iter() {
         // TODO: Convert "keyword" part to SQL using Value conversion.
         tx.execute("INSERT INTO parts VALUES (?, ?, ?)", &[part, &partition.start, &partition.index])?;
@@ -329,11 +355,14 @@ pub fn create_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
 // */
 
 pub fn ensure_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
+    d("ensure current version");
     if rusqlite::version_number() < MIN_SQLITE_VERSION {
         panic!("Mentat requires at least sqlite {}", MIN_SQLITE_VERSION);
     }
 
     let user_version = get_user_version(&conn)?;
+    d(&format!("got user version: {:?}", user_version));
+
     match user_version {
         0               => create_current_version(conn),
         CURRENT_VERSION => read_db(conn),
