@@ -246,9 +246,12 @@ pub fn create_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
     // This is necessary: `transact` will only UPDATE parts, not INSERT them if they're missing.
     d(&format!("got bootstrap partition map {:?}", bootstrap_partition_map));
     for (part, partition) in bootstrap_partition_map.iter() {
+        d("running INSERT INTO PARTS...");
         // TODO: Convert "keyword" part to SQL using Value conversion.
         tx.execute("INSERT INTO parts VALUES (?, ?, ?)", &[part, &partition.start, &partition.index])?;
+        d("ran!");
     }
+    d("done with partitions");
 
     // TODO: return to transact_internal to self-manage the encompassing SQLite transaction.
     let bootstrap_schema = bootstrap::bootstrap_schema();
@@ -262,12 +265,17 @@ pub fn create_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
         }
     }
 
+    d(&format!("setting user version {:?}", CURRENT_VERSION));
     set_user_version(&tx, CURRENT_VERSION)?;
+    d("set user version");
 
     // TODO: use the drop semantics to do this automagically?
     tx.commit()?;
+    d("commit");
+
 
     let bootstrap_db = DB::new(next_partition_map, bootstrap_schema);
+    d("bootstrap db");
     Ok(bootstrap_db)
 }
 
