@@ -94,6 +94,8 @@ pub fn new_connection<T>(uri: T) -> rusqlite::Result<rusqlite::Connection> where
         PRAGMA wal_autocheckpoint=32;
         PRAGMA journal_size_limit=3145728;
         PRAGMA foreign_keys=ON;
+        PRAGMA temp_store=3;
+        PRAGMA temp_store_directory='/data/data/com.mozilla.toodle/databases';
     ")?;
 
     Ok(conn)
@@ -255,14 +257,20 @@ pub fn create_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
 
     // TODO: return to transact_internal to self-manage the encompassing SQLite transaction.
     let bootstrap_schema = bootstrap::bootstrap_schema();
+    d("bootstrap schema");
     let bootstrap_schema_for_mutation = Schema::default(); // The bootstrap transaction will populate this schema.
+    d("boostrap schema mut");
     let (_report, next_partition_map, next_schema) = transact(&tx, bootstrap_partition_map, &bootstrap_schema_for_mutation, &bootstrap_schema, bootstrap::bootstrap_entities())?;
+    d("transact");
     // TODO: validate metadata mutations that aren't schema related, like additional partitions.
     if let Some(next_schema) = next_schema {
+        d("some");
         if next_schema != bootstrap_schema {
             // TODO Use custom ErrorKind https://github.com/brson/error-chain/issues/117
+            d("bail!");
             bail!(ErrorKind::NotYetImplemented(format!("Initial bootstrap transaction did not produce expected bootstrap schema")));
         }
+        d("all good");
     }
 
     d(&format!("setting user version {:?}", CURRENT_VERSION));

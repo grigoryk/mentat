@@ -112,6 +112,28 @@ use types::{
 };
 use upsert_resolution::Generation;
 
+// DEBUG LOGGING
+use std::os::raw::c_char;
+use std::os::raw::c_int;
+use std::ffi::CString;
+
+use std::panic;
+
+pub const ANDROID_LOG_DEBUG: i32 = 3;
+pub const ANDROID_LOG_INFO: i32 = 4;
+pub const ANDROID_LOG_WARN: i32 = 5;
+pub const ANDROID_LOG_ERROR: i32 = 6;
+extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
+
+pub fn d(message: &str) {
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new("RustyMentat").unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+}
+// ///
+
 /// A transaction on its way to being applied.
 #[derive(Debug)]
 pub struct Tx<'conn, 'a> {
@@ -509,27 +531,35 @@ impl<'conn, 'a> Tx<'conn, 'a> {
     /// This approach is explained in https://github.com/mozilla/mentat/wiki/Transacting.
     // TODO: move this to the transactor layer.
     pub fn transact_entities<I>(&mut self, entities: I) -> Result<TxReport> where I: IntoIterator<Item=Entity> {
+        d("transact entities");
         // TODO: push these into an internal transaction report?
         let mut tempids: BTreeMap<TempId, KnownEntid> = BTreeMap::default();
+        d("tempids");
 
         // Pipeline stage 1: entities -> terms with tempids and lookup refs.
         let (terms_with_temp_ids_and_lookup_refs, tempid_set, lookup_ref_set) = self.entities_into_terms_with_temp_ids_and_lookup_refs(entities)?;
+        d("stage 1");
 
         // Pipeline stage 2: resolve lookup refs -> terms with tempids.
         let lookup_ref_avs: Vec<&(i64, TypedValue)> = lookup_ref_set.inner.iter().map(|rc| &**rc).collect();
         let lookup_ref_map: AVMap = self.store.resolve_avs(&lookup_ref_avs[..])?;
 
+        d("stage 2");
+
         let terms_with_temp_ids = self.resolve_lookup_refs(&lookup_ref_map, terms_with_temp_ids_and_lookup_refs)?;
+        d("terms and tempids");
 
         // Pipeline stage 3: upsert tempids -> terms without tempids or lookup refs.
         // Now we can collect upsert populations.
         let (mut generation, inert_terms) = Generation::from(terms_with_temp_ids, &self.schema)?;
+        d("stage 3");
 
         // And evolve them forward.
         while generation.can_evolve() {
             // Evolve further.
             let temp_id_map: TempIdMap = self.resolve_temp_id_avs(&generation.temp_id_avs()[..])?;
             generation = generation.evolve_one_step(&temp_id_map);
+            d("generation");
 
             // Report each tempid that resolves via upsert.
             for (tempid, entid) in temp_id_map {
@@ -543,22 +573,35 @@ impl<'conn, 'a> Tx<'conn, 'a> {
                 // successfully upsert the same tempid in more than one generation step.  (We might
                 // upsert the same tempid to multiple entids via distinct `[a v]` pairs in a single
                 // generation step; in this case, the transaction will fail.)
+                d("loop");
                 let previous = tempids.insert((*tempid).clone(), entid);
+                d("prev");
                 assert!(previous.is_none());
+                d("assert");
             }
         }
+
+        d("end while");
 
         // Allocate entids for tempids that didn't upsert.  BTreeSet rather than HashSet so this is deterministic.
         let unresolved_temp_ids: BTreeSet<TempIdHandle> = generation.temp_ids_in_allocations();
 
+        d("unresolved");
+
         // TODO: track partitions for temporary IDs.
         let entids = self.partition_map.allocate_entids(":db.part/user", unresolved_temp_ids.len());
+
+        d("entids");
 
         let temp_id_allocations: TempIdMap = unresolved_temp_ids.into_iter()
                                                                 .zip(entids.map(|e| KnownEntid(e)))
                                                                 .collect();
 
+        d("alloc");
+
         let final_populations = generation.into_final_populations(&temp_id_allocations)?;
+
+        d("pops");
 
         // Report each tempid that is allocated.
         for (tempid, &entid) in &temp_id_allocations {
@@ -635,27 +678,41 @@ impl<'conn, 'a> Tx<'conn, 'a> {
                           self.schema.require_attribute_for_entid(entids::DB_TX_INSTANT).unwrap(),
                           TypedValue::Instant(self.tx_instant),
                           true));
+        
+        d("insert 1");
 
         if !non_fts_one.is_empty() {
             self.store.insert_non_fts_searches(&non_fts_one[..], db::SearchType::Inexact)?;
         }
 
+        d("insert 2");
+
         if !non_fts_many.is_empty() {
             self.store.insert_non_fts_searches(&non_fts_many[..], db::SearchType::Exact)?;
         }
+
+        d("insert 3");
 
         if !fts_one.is_empty() {
             self.store.insert_fts_searches(&fts_one[..], db::SearchType::Inexact)?;
         }
 
+        d("insert 4");
+
         if !fts_many.is_empty() {
             self.store.insert_fts_searches(&fts_many[..], db::SearchType::Exact)?;
         }
 
-        self.store.commit_transaction(self.tx_id)?;
+        d("before commit trans");
+
+        // self.store.commit_transaction(self.tx_id);
         }
 
+        d("commit trans");
+
         db::update_partition_map(self.store, &self.partition_map)?;
+
+        d("update part map");
 
         if tx_might_update_metadata {
             // Extract changes to metadata from the store.
@@ -675,6 +732,8 @@ impl<'conn, 'a> Tx<'conn, 'a> {
                 db::update_metadata(self.store, &old_schema, &*self.schema_for_mutation, &metadata_report)?;
             }
         }
+
+        d("before ok");
 
         Ok(TxReport {
             tx_id: self.tx_id,
@@ -697,19 +756,27 @@ pub fn transact<'conn, 'a, I>(
     // Eventually, this function will be responsible for managing a SQLite transaction.  For
     // now, it's just about the tx details.
 
+    d("transact");
+
     let tx_instant = ::now(); // Label the transaction with the timestamp when we first see it: leading edge.
     let tx_id = partition_map.allocate_entid(":db.part/tx");
 
-    conn.begin_transaction()?;
+    d(&format!("tx_instant={:?}, allocated tx_id={:?}", tx_instant, tx_id));
+
+    //conn.begin_transaction()?;
+    d("begin transaction");
 
     let mut tx = Tx::new(conn, partition_map, schema_for_mutation, schema, tx_id, tx_instant);
+    d(&format!("new tx: {:?}", tx));
 
     let report = tx.transact_entities(entities)?;
+    d(&format!("report: {:?}", report));
 
     // If the schema has moved on, return it.
     let next_schema = match tx.schema_for_mutation {
         Cow::Borrowed(_) => None,
         Cow::Owned(next_schema) => Some(next_schema),
     };
+    d(&format!("next schema: {:?}", next_schema));
     Ok((report, tx.partition_map, next_schema))
 }
