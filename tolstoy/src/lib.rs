@@ -28,7 +28,7 @@ extern crate uuid;
 
 pub mod schema;
 pub mod metadata;
-pub mod client;
+pub mod remote_client;
 
 error_chain! {
     types {
