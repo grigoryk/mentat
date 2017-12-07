@@ -14,6 +14,9 @@ extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate serde_derive;
+
 extern crate hyper;
 extern crate tokio_core;
 extern crate futures;
@@ -25,6 +28,7 @@ extern crate uuid;
 
 pub mod schema;
 pub mod metadata;
+pub mod client;
 
 error_chain! {
     types {
