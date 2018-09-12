@@ -1,7 +1,7 @@
-# UNMAINTAINED Project Mentat
+# Project Mentat, grisha's fork
 [![Build Status](https://travis-ci.org/mozilla/mentat.svg?branch=master)](https://travis-ci.org/mozilla/mentat)
 
-**Project Mentat is [no longer being developed or actively maintained by Mozilla](https://mail.mozilla.org/pipermail/firefox-dev/2018-September/006780.html).**  This repository will be marked read-only in the near future.  You are, of course, welcome to fork the repository and use the existing code.
+*This fork is Grisha's personal explorations of this space. While Mozilla is [no longer actively developing Mentat](https://mail.mozilla.org/pipermail/firefox-dev/2018-September/006780.html), I'm still interested in the problem space and would like to push it forward - largely at my own pace.*
 
 Project Mentat is a persistent, embedded knowledge base. It draws heavily on [DataScript](https://github.com/tonsky/datascript) and [Datomic](http://datomic.com).
 
